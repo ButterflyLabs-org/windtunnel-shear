@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 from pathlib import Path
 
 import typer
@@ -25,5 +27,72 @@ def proxy_cmd(
     to the upstream API. Auto-detects upstream from the Authorization header
     if --upstream is not provided.
     """
-    typer.echo(f"Starting Shear proxy on port {port}...")
-    raise NotImplementedError("Proxy server not yet implemented.")
+    import uvicorn
+
+    from windtunnel_shear.core.hooks import HookRegistry
+    from windtunnel_shear.transport.proxy import ProxyConfig, create_app
+
+    registry = HookRegistry()
+
+    # Load user hook file if provided
+    if hooks is not None:
+        if not hooks.exists():
+            typer.echo(f"Error: Hook file not found: {hooks}", err=True)
+            raise typer.Exit(1)
+        _load_hooks_file(hooks)
+
+    config = ProxyConfig(
+        upstream=upstream or "",
+        verbose=verbose,
+        json_output=json_output,
+        quiet=quiet,
+        hook_registry=registry,
+    )
+
+    app = create_app(config)
+
+    if not quiet:
+        _print_banner(port, upstream, hooks, fault, jitter)
+
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+
+
+def _load_hooks_file(path: Path) -> None:
+    """Load a Python file containing hook definitions.
+
+    The file is executed as a module, which triggers any @Hook decorators.
+
+    Args:
+        path: Path to the Python hook file.
+    """
+    spec = importlib.util.spec_from_file_location("user_hooks", path)
+    if spec is None or spec.loader is None:
+        typer.echo(f"Error: Could not load hook file: {path}", err=True)
+        raise typer.Exit(1)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["user_hooks"] = module
+    spec.loader.exec_module(module)
+
+
+def _print_banner(
+    port: int,
+    upstream: str | None,
+    hooks: Path | None,
+    faults: list[str] | None,
+    jitters: list[str] | None,
+) -> None:
+    """Print the startup banner to stderr."""
+    typer.echo(f"\n  Shear proxy listening on http://0.0.0.0:{port}", err=True)
+    if upstream:
+        typer.echo(f"  Upstream: {upstream}", err=True)
+    else:
+        typer.echo("  Upstream: auto-detect from Authorization header", err=True)
+    if hooks:
+        typer.echo(f"  Hooks: {hooks}", err=True)
+    if faults:
+        for f in faults:
+            typer.echo(f"  Fault: {f}", err=True)
+    if jitters:
+        for j in jitters:
+            typer.echo(f"  Jitter: {j}", err=True)
+    typer.echo("", err=True)

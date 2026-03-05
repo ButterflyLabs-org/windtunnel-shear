@@ -7,8 +7,8 @@ def detect_upstream(auth_header: str) -> str:
     """Detect the upstream API URL from an Authorization header value.
 
     Rules:
+    - ``sk-ant-...`` keys → ``https://api.anthropic.com/v1``
     - ``sk-...`` keys → ``https://api.openai.com/v1``
-    - Azure deployment URLs → extracted from request
     - Falls back to empty string (caller should use ``--upstream``).
 
     Args:
@@ -17,4 +17,21 @@ def detect_upstream(auth_header: str) -> str:
     Returns:
         The detected upstream base URL, or empty string if unknown.
     """
-    raise NotImplementedError
+    # Strip "Bearer " prefix if present
+    token = auth_header.strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:]
+    token = token.strip()
+
+    if not token:
+        return ""
+
+    # Anthropic keys: sk-ant-...
+    if token.startswith("sk-ant-"):
+        return "https://api.anthropic.com/v1"
+
+    # OpenAI keys: sk-... (but not sk-ant-)
+    if token.startswith("sk-"):
+        return "https://api.openai.com/v1"
+
+    return ""
