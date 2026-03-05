@@ -14,11 +14,15 @@ def proxy_cmd(
     upstream: str | None = typer.Option(None, help="Upstream LLM API URL."),
     hooks: Path | None = typer.Option(None, help="Python file with hook definitions."),
     fault: list[str] | None = typer.Option(
-        None, help="Fault injection spec (e.g. rate-limit:0.3)."
+        None, help="Fault injection spec (e.g. rate-limit:0.3).",
     ),
-    jitter: list[str] | None = typer.Option(None, help="Jitter spec (e.g. noise:0.1)."),
+    jitter: list[str] | None = typer.Option(
+        None, help="Jitter spec (e.g. noise:0.1).",
+    ),
     verbose: bool = typer.Option(False, help="Show full request/response payloads."),
-    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Machine-readable JSON output.",
+    ),
     quiet: bool = typer.Option(False, help="Suppress output."),
 ) -> None:
     """Start the Shear proxy server.
@@ -30,6 +34,7 @@ def proxy_cmd(
     import uvicorn
 
     from windtunnel_shear.core.hooks import HookRegistry
+    from windtunnel_shear.core.models import InterceptedRequest
     from windtunnel_shear.transport.proxy import ProxyConfig, create_app
 
     registry = HookRegistry()
@@ -41,12 +46,35 @@ def proxy_cmd(
             raise typer.Exit(1)
         _load_hooks_file(hooks)
 
+    # Wire jitters as before_request hooks
+    if jitter:
+        from windtunnel_shear.jitters.engine import JitterEngine, parse_jitter_flag
+
+        specs = [parse_jitter_flag(j) for j in jitter]
+        engine = JitterEngine(specs)
+
+        def jitter_hook(req: InterceptedRequest) -> InterceptedRequest:
+            return engine.apply(req)
+
+        registry.register(
+            jitter_hook, "before_request", name="jitter", stage="mutate",
+        )
+
+    # Wire faults as before_request hooks (they short-circuit by returning
+    # a synthetic response, handled specially in the proxy handler)
+    if fault:
+        from windtunnel_shear.faults.engine import FaultEngine, parse_fault_flag
+
+        fault_specs = [parse_fault_flag(f) for f in fault]
+        fault_engine = FaultEngine(fault_specs)
+
     config = ProxyConfig(
         upstream=upstream or "",
         verbose=verbose,
         json_output=json_output,
         quiet=quiet,
         hook_registry=registry,
+        fault_engine=fault_engine if fault else None,
     )
 
     app = create_app(config)
@@ -58,13 +86,7 @@ def proxy_cmd(
 
 
 def _load_hooks_file(path: Path) -> None:
-    """Load a Python file containing hook definitions.
-
-    The file is executed as a module, which triggers any @Hook decorators.
-
-    Args:
-        path: Path to the Python hook file.
-    """
+    """Load a Python file containing hook definitions."""
     spec = importlib.util.spec_from_file_location("user_hooks", path)
     if spec is None or spec.loader is None:
         typer.echo(f"Error: Could not load hook file: {path}", err=True)
@@ -86,7 +108,9 @@ def _print_banner(
     if upstream:
         typer.echo(f"  Upstream: {upstream}", err=True)
     else:
-        typer.echo("  Upstream: auto-detect from Authorization header", err=True)
+        typer.echo(
+            "  Upstream: auto-detect from Authorization header", err=True,
+        )
     if hooks:
         typer.echo(f"  Hooks: {hooks}", err=True)
     if faults:

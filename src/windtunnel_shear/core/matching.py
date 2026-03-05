@@ -4,7 +4,21 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from windtunnel_shear.core.models import InterceptedRequest, InterceptedResponse, Session
+from windtunnel_shear.core.models import (
+    InterceptedRequest,
+    InterceptedResponse,
+    ReplayMissError,
+    Session,
+)
+
+
+def _collect_turns(session: Session) -> list[tuple[InterceptedRequest, InterceptedResponse]]:
+    """Flatten all turns from all episodes into a list."""
+    turns: list[tuple[InterceptedRequest, InterceptedResponse]] = []
+    for episode in session.episodes:
+        for turn in episode.turns:
+            turns.append((turn.request, turn.response))
+    return turns
 
 
 class Matcher(ABC):
@@ -33,22 +47,23 @@ class SequentialMatcher(Matcher):
     """
 
     def __init__(self, session: Session) -> None:
-        self._session = session
+        self._turns = _collect_turns(session)
         self._index = 0
 
     def match(self, request: InterceptedRequest) -> InterceptedResponse:
-        """Return the next recorded response in sequence.
-
-        Args:
-            request: The incoming request (ignored for matching).
-
-        Returns:
-            The next recorded response.
-
-        Raises:
-            ReplayMissError: If all recorded responses have been consumed.
-        """
-        raise NotImplementedError
+        """Return the next recorded response in sequence."""
+        if self._index >= len(self._turns):
+            raise ReplayMissError(
+                request_hash=request.compute_hash(),
+                detail=(
+                    f"Sequential replay exhausted: received request "
+                    f"{self._index + 1} but only {len(self._turns)} "
+                    f"turns were recorded."
+                ),
+            )
+        _, response = self._turns[self._index]
+        self._index += 1
+        return response
 
 
 class ExactMatcher(Matcher):
@@ -58,19 +73,39 @@ class ExactMatcher(Matcher):
     """
 
     def __init__(self, session: Session) -> None:
-        self._session = session
         self._index: dict[str, InterceptedResponse] = {}
+        for req, resp in _collect_turns(session):
+            h = req.request_hash or req.compute_hash()
+            self._index[h] = resp
 
     def match(self, request: InterceptedRequest) -> InterceptedResponse:
-        """Find a response matching the request's normalized hash.
+        """Find a response matching the request's normalized hash."""
+        request_hash = request.compute_hash()
+        if request_hash in self._index:
+            return self._index[request_hash]
+        raise ReplayMissError(
+            request_hash=request_hash,
+            expected_hash=", ".join(self._index.keys()),
+            detail="No recorded response matches this request hash.",
+        )
 
-        Args:
-            request: The incoming request to match by hash.
 
-        Returns:
-            The matching recorded response.
+def create_matcher(session: Session, mode: str = "sequential") -> Matcher:
+    """Create a Matcher instance from a mode string.
 
-        Raises:
-            ReplayMissError: If no recorded response matches the hash.
-        """
-        raise NotImplementedError
+    Args:
+        session: The recorded session to match against.
+        mode: Either "sequential" or "exact".
+
+    Returns:
+        A configured Matcher.
+
+    Raises:
+        ValueError: If the mode is unknown.
+    """
+    if mode == "sequential":
+        return SequentialMatcher(session)
+    if mode == "exact":
+        return ExactMatcher(session)
+    msg = f"Unknown match mode: '{mode}'. Use 'sequential' or 'exact'."
+    raise ValueError(msg)

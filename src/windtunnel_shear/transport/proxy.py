@@ -41,6 +41,7 @@ class ProxyConfig:
     json_output: bool = False
     quiet: bool = False
     hook_registry: HookRegistry = field(default_factory=HookRegistry)
+    fault_engine: Any = None  # Optional FaultEngine instance
 
 
 # Module-level config — set before starting the server.
@@ -123,6 +124,21 @@ async def proxy_handler(request: Request) -> Response:
             },
             status_code=500,
         )
+
+    # Check fault injection (before forwarding to upstream)
+    if _config.fault_engine is not None:
+        fault_resp = await _config.fault_engine.maybe_inject(intercepted_req)
+        if fault_resp is not None:
+            log_exchange(
+                intercepted_req,
+                fault_resp,
+                verbose=_config.verbose,
+                json_mode=_config.json_output,
+                quiet=_config.quiet,
+            )
+            return JSONResponse(
+                fault_resp.raw, status_code=fault_resp.status_code,
+            )
 
     # Resolve upstream
     try:
