@@ -14,6 +14,14 @@ from windtunnel_shear.jitters.tool import get_tool_jitter_message, is_tool_jitte
 
 logger = logging.getLogger(__name__)
 
+
+def _truncate(text: str, max_len: int = 80) -> str:
+    """Truncate text for diff display."""
+    if len(text) <= max_len:
+        return f'"{text}"'
+    return f'"{text[:max_len - 3]}..."'
+
+
 _VALID_JITTER_TYPES = frozenset({
     "noise", "contradict", "dilute", "rephrase",
 })
@@ -76,6 +84,8 @@ class JitterEngine:
     def apply(self, request: InterceptedRequest) -> InterceptedRequest:
         """Apply all configured jitters to the request.
 
+        Captures before/after diffs for each jitter in ``request.jitter_log``.
+
         Args:
             request: The incoming request.
 
@@ -84,8 +94,27 @@ class JitterEngine:
         """
         current = request
         for spec in self._specs:
+            before = self._snapshot_user_content(current)
             current = self._apply_spec(spec, current)
+            after = self._snapshot_user_content(current)
+            if before != after:
+                label = spec.jitter_type
+                if spec.params:
+                    label += f":{spec.params}"
+                current.jitter_log.append(
+                    f"{label} | {_truncate(before)} -> {_truncate(after)}"
+                )
         return current
+
+    @staticmethod
+    def _snapshot_user_content(request: InterceptedRequest) -> str:
+        """Extract message content for diffing (user + system messages)."""
+        parts = []
+        for msg in request.messages:
+            role = msg.get("role", "")
+            if role in ("user", "system") and isinstance(msg.get("content"), str):
+                parts.append(msg["content"])
+        return " | ".join(parts) if parts else ""
 
     def _apply_spec(
         self, spec: JitterSpec, request: InterceptedRequest,

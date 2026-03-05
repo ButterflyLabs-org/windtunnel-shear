@@ -113,6 +113,7 @@ class InterceptedRequest:
     raw: dict[str, Any]
     timestamp: float = field(default_factory=time.monotonic)
     request_hash: str = ""
+    jitter_log: list[str] = field(default_factory=list)
 
     # -- Typed accessors ----------------------------------------------------
 

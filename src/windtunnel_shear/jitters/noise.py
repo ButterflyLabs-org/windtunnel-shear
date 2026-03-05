@@ -29,14 +29,26 @@ def _corrupt_char(c: str, rng: random.Random) -> str:
 
 
 def _inject_noise(text: str, ratio: float, rng: random.Random) -> str:
-    """Inject typos into text at the given ratio."""
+    """Inject typos into text at the given ratio (per-word).
+
+    Each word has a ``ratio`` probability of being corrupted.  When a word
+    is selected, exactly one randomly chosen alphanumeric character is
+    replaced with a keyboard-adjacent substitute.
+    """
     if ratio <= 0 or not text:
         return text
-    chars = list(text)
-    for i in range(len(chars)):
-        if chars[i].isalnum() and rng.random() < ratio:
-            chars[i] = _corrupt_char(chars[i], rng)
-    return "".join(chars)
+    words = text.split(" ")
+    for i, word in enumerate(words):
+        if not word or not any(c.isalnum() for c in word):
+            continue
+        if rng.random() < ratio:
+            alnum_indices = [j for j, c in enumerate(word) if c.isalnum()]
+            if alnum_indices:
+                idx = rng.choice(alnum_indices)
+                chars = list(word)
+                chars[idx] = _corrupt_char(chars[idx], rng)
+                words[i] = "".join(chars)
+    return " ".join(words)
 
 
 def apply_noise(
@@ -46,7 +58,9 @@ def apply_noise(
 
     Args:
         request: The request to modify.
-        ratio: Fraction of characters to corrupt (0.0 to 1.0).
+        ratio: Fraction of words to corrupt (0.0 to 1.0). Each selected
+            word gets exactly one character replaced with a keyboard-adjacent
+            substitute.
         seed: Optional random seed for reproducibility.
 
     Returns:

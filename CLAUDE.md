@@ -436,7 +436,7 @@ Prompt jitters test the LLM's robustness. They operate on the request side (befo
 ### CLI flag format: `--jitter TYPE:PARAMS`
 | Flag | Effect |
 |------|--------|
-| `--jitter noise:0.1` | 10% of chars in user messages get typos |
+| `--jitter noise:0.1` | 10% of words in user messages get a typo (1 char each) |
 | `--jitter contradict` | Inject contradictory user message opposing system prompt |
 | `--jitter dilute:5` | Pad with 5 irrelevant turns |
 | `--jitter rephrase` | Reword system prompt policies (seeded) |
@@ -626,6 +626,50 @@ class FaultInjectedError(ShearError): ... # Shear intentionally returned error
 6. Examples directory
 7. CI/CD pipeline
 8. First PyPI publish
+---
+## Development Progress
+
+### Completed
+- **Week 0:** Repo scaffolding, pyproject.toml, Makefile, CI, .gitignore, LICENSE, README, CONTRIBUTING, CHANGELOG
+- **Week 1:** Core models, hook registry + pipeline, proxy server (ASGI), provider auto-detection, console formatter, CLI (`shear proxy`), library mode `wrap()`
+- **Week 2:** Fault engine (rate-limit, latency, error, timeout), jitter engine (noise, contradict, dilute, rephrase), session recording with episode grouping, replay with sequential/exact matching, CLI wiring (`shear record`, `shear replay`, `--fault`, `--jitter`)
+- **Tests:** 133 passing (unit + integration), ruff clean, mypy clean across 38 source files
+
+### Bug Fixes Applied
+- **Double /v1 in proxy URL:** When `--upstream http://host/v1` and request path is `/v1/chat/completions`, the path was duplicated (`/v1/v1/...`). Fixed by stripping overlapping path prefix in `transport/proxy.py`.
+- **Episode splitting:** `test_new_episode_after_final` failed because episode split checked `turn_type == USER_MESSAGE` but both turns classified as `FINAL_RESPONSE`. Fixed by checking `!= TOOL_RESULT_SUBMISSION` instead.
+
+### Revisions Applied (from live testing on DGX Spark)
+
+#### P0 — Noise jitter changed to per-word (DONE)
+- Changed from per-character to per-word corruption. Each word has `ratio` probability of getting 1 char corrupted.
+- Files changed: `jitters/noise.py`, `tests/unit/test_jitters.py`
+
+#### P1 — Jitter diff logging (DONE)
+- Added `jitter_log` field to InterceptedRequest. JitterEngine captures before/after diffs. `--verbose` shows diffs.
+- Files changed: `core/models.py`, `jitters/engine.py`, `cli/formatter.py`
+
+#### P2 — `--timeout` flag (DONE)
+- Added `--timeout` CLI option (e.g. `--timeout 30s`), configurable httpx timeout.
+- Files changed: `cli/proxy_cmd.py`, `transport/proxy.py`
+
+#### P3 — Token estimate fixed (DONE)
+- Changed from chars/4 to words x 1.3 + 4 per message framing overhead.
+- Files changed: `cli/formatter.py`
+
+#### P4 — Verbose/debug split (DONE)
+- `--verbose`: compact + jitter diffs. `--debug`: full JSON payloads.
+- Files changed: `cli/proxy_cmd.py`, `cli/formatter.py`, `transport/proxy.py`
+
+### Not Yet Implemented (stubs remaining)
+- `streaming/reassembly.py` — SSE chunk reassembly
+- `streaming/restream.py` — Re-serialize to SSE chunks
+- `tokens/counter.py` — tiktoken integration
+- `cli/simulate_cmd.py` — `shear simulate` command
+- `cli/inspect_cmd.py` — `shear inspect` command
+- `jitters/tool.py` — Tool-level jitters (reserved for v0.1)
+- Replay `--on-miss passthrough` mode
+
 ---
 ## What Success Looks Like
 - **Week 2:** `pip install windtunnel-shear && shear proxy` works. Developer sees colored request/response summaries.

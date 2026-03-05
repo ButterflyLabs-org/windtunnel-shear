@@ -10,6 +10,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from starlette.applications import Starlette
@@ -38,8 +39,10 @@ class ProxyConfig:
 
     upstream: str = ""
     verbose: bool = False
+    debug: bool = False
     json_output: bool = False
     quiet: bool = False
+    timeout_s: float = 120.0
     hook_registry: HookRegistry = field(default_factory=HookRegistry)
     fault_engine: Any = None  # Optional FaultEngine instance
 
@@ -53,7 +56,7 @@ def _get_client() -> httpx.AsyncClient:
     """Get or create the shared async HTTP client."""
     global _http_client
     if _http_client is None:
-        _http_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
+        _http_client = httpx.AsyncClient(timeout=httpx.Timeout(_config.timeout_s))
     return _http_client
 
 
@@ -133,6 +136,7 @@ async def proxy_handler(request: Request) -> Response:
                 intercepted_req,
                 fault_resp,
                 verbose=_config.verbose,
+                debug=_config.debug,
                 json_mode=_config.json_output,
                 quiet=_config.quiet,
             )
@@ -149,8 +153,12 @@ async def proxy_handler(request: Request) -> Response:
             status_code=502,
         )
 
-    # Build upstream URL
+    # Build upstream URL — strip overlapping path prefix to avoid
+    # double paths (e.g. upstream=/v1 + request=/v1/chat/completions)
     path = request.path_params.get("path", "")
+    upstream_path = urlparse(upstream).path.strip("/")
+    if upstream_path and path.startswith(upstream_path):
+        path = path[len(upstream_path):].lstrip("/")
     upstream_url = f"{upstream.rstrip('/')}/{path}" if path else upstream
 
     # Forward headers (pass through auth, content-type, etc.)
@@ -218,6 +226,7 @@ async def proxy_handler(request: Request) -> Response:
         intercepted_req,
         intercepted_resp,
         verbose=_config.verbose,
+        debug=_config.debug,
         json_mode=_config.json_output,
         quiet=_config.quiet,
     )

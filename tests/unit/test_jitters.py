@@ -133,6 +133,36 @@ class TestRephrase:
         assert "Rarely" in req.messages[0]["content"]
 
 
+class TestNoisePerWord:
+    """Verify noise operates per-word, not per-character."""
+
+    def test_one_char_per_word(self) -> None:
+        """At ratio=1.0, every word gets exactly one char corrupted."""
+        req = _make_req("Hello world test")
+        apply_noise(req, 1.0, seed=42)
+        result = req.messages[-1]["content"]
+        original_words = ["Hello", "world", "test"]
+        result_words = result.split()
+        assert len(result_words) == len(original_words)
+        for orig, res in zip(original_words, result_words, strict=True):
+            # Exactly one character should differ
+            diffs = sum(1 for a, b in zip(orig, res, strict=True) if a != b)
+            assert diffs == 1, f"{orig!r} -> {res!r}: expected 1 diff, got {diffs}"
+
+    def test_moderate_ratio_readable(self) -> None:
+        """At ratio=0.3, most words should remain unchanged."""
+        req = _make_req("What is the capital of France")
+        apply_noise(req, 0.3, seed=99)
+        result = req.messages[-1]["content"]
+        original_words = ["What", "is", "the", "capital", "of", "France"]
+        result_words = result.split()
+        unchanged = sum(
+            1 for a, b in zip(original_words, result_words, strict=True) if a == b
+        )
+        # With 6 words at 0.3 ratio, expect ~4 unchanged (probabilistic but seeded)
+        assert unchanged >= 2, f"Too many words corrupted: {result}"
+
+
 class TestJitterEngine:
     def test_apply_noise(self) -> None:
         engine = JitterEngine([JitterSpec("noise", "1.0")])
@@ -165,6 +195,22 @@ class TestJitterEngine:
         req = _make_req("Hello")
         result = engine.apply(req)
         assert result.messages[-1]["content"] == "Hello"
+
+    def test_jitter_log_populated(self) -> None:
+        """Engine should populate jitter_log with before/after diffs."""
+        engine = JitterEngine([JitterSpec("noise", "1.0")])
+        req = _make_req("Hello world test message here")
+        result = engine.apply(req)
+        assert len(result.jitter_log) == 1
+        assert "noise:1.0" in result.jitter_log[0]
+        assert "->" in result.jitter_log[0]
+
+    def test_jitter_log_empty_when_no_change(self) -> None:
+        """No log entry if jitter didn't change anything."""
+        engine = JitterEngine([JitterSpec("noise", "0.0")])
+        req = _make_req("Hello")
+        result = engine.apply(req)
+        assert len(result.jitter_log) == 0
 
     def test_multiple_jitters_chain(self) -> None:
         engine = JitterEngine([

@@ -37,11 +37,21 @@ def _truncate(text: str, max_len: int = 60) -> str:
 
 
 def _count_message_tokens(request: InterceptedRequest) -> str:
-    """Rough token estimate from message content length."""
-    total_chars = sum(len(str(m.get("content", ""))) for m in request.messages)
-    # Rough heuristic: ~4 chars per token
-    approx = total_chars // 4
-    return f"~{approx} tokens" if approx > 0 else ""
+    """Rough token estimate from message content.
+
+    Uses word count x 1.3 as a heuristic (English text averages ~1.3 tokens
+    per word with BPE tokenizers). Falls back to char count / 4 for very
+    short messages.
+    """
+    total_words = 0
+    for m in request.messages:
+        content = str(m.get("content", ""))
+        if content:
+            total_words += len(content.split())
+    approx = max(total_words, 1) * 1.3
+    # Add overhead for message framing (~4 tokens per message)
+    approx += len(request.messages) * 4
+    return f"~{int(approx)} tokens"
 
 
 def _status_color(status_code: int) -> str:
@@ -192,11 +202,33 @@ def format_response_json(response: InterceptedResponse) -> str:
     return json.dumps(data, ensure_ascii=False)
 
 
+def format_jitter_diffs(request: InterceptedRequest, *, color: bool = True) -> str:
+    """Format jitter diff lines for display.
+
+    Args:
+        request: The intercepted request (with jitter_log populated).
+        color: Whether to use ANSI colors.
+
+    Returns:
+        Multi-line string with jitter diffs, or empty string if none.
+    """
+    if not request.jitter_log:
+        return ""
+    lines = []
+    for entry in request.jitter_log:
+        if color:
+            lines.append(f"  {_YELLOW}jitter:{_RESET} {entry}")
+        else:
+            lines.append(f"  jitter: {entry}")
+    return "\n".join(lines)
+
+
 def log_exchange(
     request: InterceptedRequest,
     response: InterceptedResponse,
     *,
     verbose: bool = False,
+    debug: bool = False,
     json_mode: bool = False,
     quiet: bool = False,
 ) -> None:
@@ -205,7 +237,8 @@ def log_exchange(
     Args:
         request: The intercepted request.
         response: The intercepted response.
-        verbose: Show full payloads.
+        verbose: Show enriched view with jitter diffs.
+        debug: Show full JSON payloads.
         json_mode: Output machine-readable JSON.
         quiet: Suppress all output.
     """
@@ -217,11 +250,20 @@ def log_exchange(
     if json_mode:
         sys.stderr.write(format_request_json(request) + "\n")
         sys.stderr.write(format_response_json(response) + "\n")
-    elif verbose:
+    elif debug:
         sys.stderr.write(format_request_line(request, color=use_color) + "\n")
+        jitter_diffs = format_jitter_diffs(request, color=use_color)
+        if jitter_diffs:
+            sys.stderr.write(jitter_diffs + "\n")
         sys.stderr.write(format_request_verbose(request) + "\n")
         sys.stderr.write(format_response_line(response, color=use_color) + "\n")
         sys.stderr.write(format_response_verbose(response) + "\n")
+    elif verbose:
+        sys.stderr.write(format_request_line(request, color=use_color) + "\n")
+        jitter_diffs = format_jitter_diffs(request, color=use_color)
+        if jitter_diffs:
+            sys.stderr.write(jitter_diffs + "\n")
+        sys.stderr.write(format_response_line(response, color=use_color) + "\n")
     else:
         sys.stderr.write(format_request_line(request, color=use_color) + "\n")
         sys.stderr.write(format_response_line(response, color=use_color) + "\n")
