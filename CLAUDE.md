@@ -633,7 +633,8 @@ class FaultInjectedError(ShearError): ... # Shear intentionally returned error
 - **Week 0:** Repo scaffolding, pyproject.toml, Makefile, CI, .gitignore, LICENSE, README, CONTRIBUTING, CHANGELOG
 - **Week 1:** Core models, hook registry + pipeline, proxy server (ASGI), provider auto-detection, console formatter, CLI (`shear proxy`), library mode `wrap()`
 - **Week 2:** Fault engine (rate-limit, latency, error, timeout), jitter engine (noise, contradict, dilute, rephrase), session recording with episode grouping, replay with sequential/exact matching, CLI wiring (`shear record`, `shear replay`, `--fault`, `--jitter`)
-- **Tests:** 133 passing (unit + integration), ruff clean, mypy clean across 38 source files
+- **Streaming:** SSE reassembly + re-streaming. Proxy detects `stream: true`, collects chunks via httpx streaming, reassembles into complete response for hooks, then re-streams SSE to client.
+- **Tests:** 148 passing (unit + integration), ruff clean, mypy clean across 38 source files
 
 ### Bug Fixes Applied
 - **Double /v1 in proxy URL:** When `--upstream http://host/v1` and request path is `/v1/chat/completions`, the path was duplicated (`/v1/v1/...`). Fixed by stripping overlapping path prefix in `transport/proxy.py`.
@@ -662,8 +663,6 @@ class FaultInjectedError(ShearError): ... # Shear intentionally returned error
 - Files changed: `cli/proxy_cmd.py`, `cli/formatter.py`, `transport/proxy.py`
 
 ### Not Yet Implemented (stubs remaining)
-- `streaming/reassembly.py` — SSE chunk reassembly
-- `streaming/restream.py` — Re-serialize to SSE chunks
 - `tokens/counter.py` — tiktoken integration
 - `cli/simulate_cmd.py` — `shear simulate` command
 - `cli/inspect_cmd.py` — `shear inspect` command
