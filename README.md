@@ -67,17 +67,19 @@ Shear is **not** a gateway (no routing or load balancing), **not** an observabil
 
 | Feature | Status |
 |---------|--------|
-| HTTP proxy with auto-detect upstream | v0 |
-| Human-readable console output | v0 |
-| Record & replay sessions | v0 |
-| Library mode (`wrap()`) | v0 |
-| Infrastructure faults (rate-limit, latency, error, timeout) | v0 |
-| Prompt jitters (noise, contradict, dilute, rephrase) | v0 |
-| Hook pipeline (before_request, after_response, on_error) | v0 |
-| SSE streaming support | v0 |
-| Token counting | v0 |
-| Tool call jitters | v0.1 |
-| Chunk-level stream mutation | v0.1 |
+| HTTP proxy with auto-detect upstream | ✅ v0.1 |
+| Human-readable console output | ✅ v0.1 |
+| Record & replay sessions | ✅ v0.1 |
+| Library mode (`wrap()`) | ✅ v0.1 |
+| Infrastructure faults (rate-limit, latency, error, timeout) | ✅ v0.1 |
+| Prompt jitters (noise, contradict, dilute, rephrase) | ✅ v0.1 |
+| Hook pipeline (before_request, after_response, on_error) | ✅ v0.1 |
+| SSE streaming support (reassemble + re-stream) | ✅ v0.1 |
+| Token counting (tiktoken) | coming |
+| Session inspector (`shear inspect`) | coming |
+| Response simulation (`shear simulate`) | coming |
+| Tool call jitters | coming |
+| Chunk-level stream mutation | coming |
 
 ## CLI Reference
 
@@ -92,14 +94,15 @@ shear proxy --fault rate-limit:0.3       # 30% rate limiting
 shear proxy --fault latency:500ms        # Add 500ms latency
 shear proxy --fault error:503:0.1        # 10% 503 errors
 shear proxy --fault timeout:10s          # Timeout after 10s
-shear proxy --jitter noise:0.1           # 10% char typos
+shear proxy --jitter noise:0.1           # 10% word-level typos
 shear proxy --jitter contradict          # Contradict system prompt
 shear proxy --jitter dilute:5            # Pad with 5 irrelevant turns
 shear proxy --jitter rephrase            # Reword system prompt
 shear record -o session.json             # Record traffic
 shear replay -i session.json             # Replay from file
-shear inspect session.json               # Inspect a session file
-shear simulate --responses fixtures.json # Serve synthetic responses
+shear proxy --timeout 30s                # Upstream timeout
+shear proxy --verbose                    # Compact + jitter diffs
+shear proxy --debug                      # Full JSON payloads
 ```
 
 ## Hook API
